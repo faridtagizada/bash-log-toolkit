@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Fake systemctl --failed for tests
+echo "nginx.service loaded failed failed A high performance web server"
+exit 0

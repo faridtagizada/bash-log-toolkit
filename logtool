@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# logtool: single entry point for all the scripts
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+usage() {
+    cat <<USAGE
+Bash Log Toolkit
+Usage: ./logtool <command> [arguments]
+
+Commands:
+  ssh-ips [-n COUNT] FILE     IPs with the most failed SSH attempts
+  ssh-users [-n COUNT] FILE   Most frequently tried usernames
+  ssh-hourly FILE             Failed attempts per hour (chart)
+  web [-n COUNT] FILE         Access log statistics (Apache/Nginx)
+  web-suspicious FILE         Suspicious requests (SQLi, traversal, XSS, scanners)
+  journal [-s TIME]           systemd journal error summary
+
+FILE: a log file, *.gz, or '-' (stdin). Help for any command: ./logtool <command> -h
+USAGE
+}
+
+cmd="${1:-help}"
+[[ $# -gt 0 ]] && shift
+
+case "$cmd" in
+    ssh-ips)        exec "$DIR/scripts/ssh-top-ips.sh" "$@" ;;
+    ssh-users)      exec "$DIR/scripts/ssh-top-users.sh" "$@" ;;
+    ssh-hourly)     exec "$DIR/scripts/ssh-hourly.sh" "$@" ;;
+    web)            exec "$DIR/scripts/web-summary.sh" "$@" ;;
+    web-suspicious) exec "$DIR/scripts/web-suspicious.sh" "$@" ;;
+    journal)        exec "$DIR/scripts/journal-summary.sh" "$@" ;;
+    help|-h|--help) usage ;;
+    *) echo "Unknown command: $cmd" >&2; usage >&2; exit 1 ;;
+esac
