@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# logtool: bütün skriptlər üçün vahid giriş nöqtəsi
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+usage() {
+    cat <<USAGE
+Bash Log Toolkit
+İstifadə: ./logtool <əmr> [parametrlər]
+
+Əmrlər:
+  ssh-ips [-n SAY] FAYL     Ən çox uğursuz SSH cəhdi edən IP-lər
+  ssh-users [-n SAY] FAYL   Ən çox sınanan istifadəçi adları
+  ssh-hourly FAYL           Uğursuz cəhdlərin saat üzrə qrafiki
+  web [-n SAY] FAYL         Access log statistikası (Apache/Nginx)
+  web-suspicious FAYL       Şübhəli sorğular (SQLi, traversal, XSS, skaner)
+  journal [-s ZAMAN]        systemd journal xəta xülasəsi
+
+FAYL: log faylı, *.gz və ya '-' (stdin). Hər əmr üçün: ./logtool <əmr> -h
+USAGE
+}
+
+cmd="${1:-help}"
+[[ $# -gt 0 ]] && shift
+
+case "$cmd" in
+    ssh-ips)        exec "$DIR/scripts/ssh-top-ips.sh" "$@" ;;
+    ssh-users)      exec "$DIR/scripts/ssh-top-users.sh" "$@" ;;
+    ssh-hourly)     exec "$DIR/scripts/ssh-hourly.sh" "$@" ;;
+    web)            exec "$DIR/scripts/web-summary.sh" "$@" ;;
+    web-suspicious) exec "$DIR/scripts/web-suspicious.sh" "$@" ;;
+    journal)        exec "$DIR/scripts/journal-summary.sh" "$@" ;;
+    help|-h|--help) usage ;;
+    *) echo "Naməlum əmr: $cmd" >&2; usage >&2; exit 1 ;;
+esac
