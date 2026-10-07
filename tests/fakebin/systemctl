@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Test üçün saxta systemctl --failed
+echo "nginx.service loaded failed failed A high performance web server"
+exit 0

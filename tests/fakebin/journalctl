@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Test üçün saxta journalctl
+prio=""; unit=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -p) prio="$2"; shift ;;
+        -u) unit="$2"; shift ;;
+    esac
+    shift
+done
+if [[ -n "$prio" ]]; then
+    echo "Oct 08 10:00:01 srv nginx[123]: connect() failed"
+    echo "Oct 08 10:00:02 srv nginx[123]: upstream timed out"
+    echo "Oct 08 10:00:03 srv CRON[9]: error in job"
+elif [[ "$unit" == "ssh" ]]; then
+    for i in 1 2 3; do echo "Oct 08 10:00:0$i srv sshd[1]: Failed password for root from 1.2.3.4 port 22 ssh2"; done
+fi
+exit 0
