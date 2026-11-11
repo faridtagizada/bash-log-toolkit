@@ -28,11 +28,22 @@ done
 
 command -v journalctl >/dev/null 2>&1 || die "journalctl not found (systemd required)"
 
+new_tmp; JOURNAL_OUT="$REPLY"
+new_tmp; JOURNAL_ERR="$REPLY"
+# journal ARGS...: runs journalctl into the file $JOURNAL_OUT. If journalctl fails (for
+# example because it cannot parse the -s value) the script stops with journalctl's own
+# message. With the errors thrown away, that case looked like "no errors, 0 attempts".
+journal() {
+    if ! journalctl --no-pager -q --since "$SINCE" "$@" > "$JOURNAL_OUT" 2> "$JOURNAL_ERR"; then
+        die "journalctl failed: $(head -n 1 "$JOURNAL_ERR")"
+    fi
+}
+
+journal -p err -o short
 echo "Journal summary (since: $SINCE)"
 
 section "Error messages by service (priority: err and above)"
-errors=$(journalctl --no-pager -q -p err --since "$SINCE" -o short 2>/dev/null \
-    | awk 'NF >= 5 { u = $5; sub(/\[[0-9]+\]:?$/, "", u); sub(/:$/, "", u); print u }' \
+errors=$(awk 'NF >= 5 { u = $5; sub(/\[[0-9]+\]:?$/, "", u); sub(/:$/, "", u); print u }' "$JOURNAL_OUT" \
     | sort | uniq -c | sort -rn | head -n "$TOP" | awk '{printf "%8d  %s\n", $1, $2}')
 if [[ -z "$errors" ]]; then
     echo "  (no error messages found, or the journal is not readable)"
@@ -55,7 +66,8 @@ fi
 section "SSH: failed password attempts"
 count=0
 for unit in ssh sshd; do
-    c=$(journalctl --no-pager -q -u "$unit" --since "$SINCE" 2>/dev/null | grep -c 'Failed password')
+    journal -u "$unit" -o short
+    c=$(ssh_failed_events "$JOURNAL_OUT" | awk -F'\t' '$4 == "password" { n += $1 } END { print n + 0 }')
     count=$((count + c))
 done
 echo "  attempts: $count"
