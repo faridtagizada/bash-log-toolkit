@@ -23,17 +23,9 @@ shift $((OPTIND - 1))
 prepare_input "${1:-}"
 
 echo "Failed SSH attempts by hour"
-grep -E 'Failed password' -- "$INPUT" | awk '
-{
-    # ISO 8601: field 1 is "2026-10-08T03:10:01..." ; syslog: field 3 is "03:10:01"
-    if ($1 ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T/) {
-        h = substr($1, 12, 2)
-    } else {
-        split($3, t, ":")
-        h = t[1]
-    }
-    c[h + 0]++
-}
+# Field 1 is the number of attempts on the line, field 2 the hour (see ssh_failed_events)
+ssh_failed_events "$INPUT" | awk -F'\t' '
+$2 != "-" { c[$2 + 0] += $1 }
 END {
     max = 0
     for (i = 0; i < 24; i++) if (c[i] > max) max = c[i]
