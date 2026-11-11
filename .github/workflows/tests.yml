@@ -1,0 +1,27 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The scripts lean on awk, and Debian/Ubuntu ship mawk while other systems have gawk
+      - name: Test suite (mawk)
+        run: |
+          mkdir -p "$RUNNER_TEMP/mawk" && ln -s "$(command -v mawk)" "$RUNNER_TEMP/mawk/awk"
+          PATH="$RUNNER_TEMP/mawk:$PATH" bash tests/run_tests.sh
+      - name: Test suite (gawk)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq gawk
+          mkdir -p "$RUNNER_TEMP/gawk" && ln -s "$(command -v gawk)" "$RUNNER_TEMP/gawk/awk"
+          PATH="$RUNNER_TEMP/gawk:$PATH" bash tests/run_tests.sh
+      - name: ShellCheck
+        run: shellcheck --severity=warning logtool lib/common.sh scripts/*.sh tests/run_tests.sh tests/fakebin/journalctl tests/fakebin/systemctl

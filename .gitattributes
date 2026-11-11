@@ -1,0 +1,2 @@
+# Shell scripts must keep LF line endings: a stray CR is executed as a command
+* text=auto eol=lf
