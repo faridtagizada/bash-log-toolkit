@@ -23,26 +23,34 @@ done
 shift $((OPTIND - 1))
 prepare_input "${1:-}"
 
-total=$(wc -l < "$INPUT" | tr -d ' ')
+# count_and_rank: "sort | uniq -c" output -> the usual two columns (the value may contain blanks)
+count_and_rank() {
+    sort | uniq -c | sort -rn | head -n "$TOP" \
+        | awk '{ n = $1; sub(/^ *[0-9]+ /, ""); printf "%8d  %s\n", n, $0 }'
+}
+
+# Lines are counted with awk, not "wc -l": a last line without a newline still is a request,
+# and an empty line is not one.
+total=$(awk 'NF { n++ } END { print n + 0 }' "$INPUT")
 echo "Total requests: $total"
 
+# The fields come from parse_access (lib/common.sh), which splits by the quotes. Taking the
+# status from column 9 lost every request whose request line is "-" or has a blank in it.
 section "Status code groups"
-awk '$9 ~ /^[0-9][0-9][0-9]$/ { g[substr($9, 1, 1) "xx"]++ }
-     END { for (k in g) printf "%8d  %s\n", g[k], k }' "$INPUT" | sort -k2
+awk "$ACCESS_LOG_AWK"'
+    NF && parse_access($0) && STATUS != "" { g[substr(STATUS, 1, 1) "xx"]++ }
+    END { for (k in g) printf "%8d  %s\n", g[k], k }' "$INPUT" | sort -k2
 
 section "Status codes"
-awk '$9 ~ /^[0-9][0-9][0-9]$/ { print $9 }' "$INPUT" \
-    | sort | uniq -c | sort -rn | head -n "$TOP" | awk '{printf "%8d  %s\n", $1, $2}'
+awk "$ACCESS_LOG_AWK"'NF && parse_access($0) && STATUS != "" { print STATUS }' "$INPUT" | count_and_rank
 
 section "Top IPs (top $TOP)"
-awk '{ print $1 }' "$INPUT" | sort | uniq -c | sort -rn | head -n "$TOP" \
-    | awk '{printf "%8d  %s\n", $1, $2}'
+awk 'NF { print $1 }' "$INPUT" | count_and_rank
 
 section "Most requested URLs (without query strings)"
-awk '{ split($7, p, "?"); print p[1] }' "$INPUT" | sort | uniq -c | sort -rn | head -n "$TOP" \
-    | awk '{printf "%8d  %s\n", $1, $2}'
+awk "$ACCESS_LOG_AWK"'
+    NF && parse_access($0) && TARGET != "" { split(TARGET, p, "?"); print p[1] }' "$INPUT" | count_and_rank
 
 section "Top User-Agents"
-awk -F'"' 'NF >= 6 { print $6 }' "$INPUT" | sort | uniq -c | sort -rn | head -n "$TOP" \
-    | sed -E 's/^ *([0-9]+) /\1  /' | awk '{printf "%8s  ", $1; $1=""; print substr($0, 2)}'
+awk "$ACCESS_LOG_AWK"'NF && parse_access($0) && UA != "" { print UA }' "$INPUT" | count_and_rank
 exit 0

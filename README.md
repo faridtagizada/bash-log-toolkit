@@ -2,7 +2,7 @@
 
 A set of Bash scripts for analyzing Linux logs with nothing but the standard Unix tools (`grep`, `awk`, `sed`, `sort`, `uniq`, `journalctl`). There are no extra dependencies, so it works as soon as you copy it onto an Ubuntu or Debian server.
 
-It does the same job as the Python Log Analyzer (looking at SSH attacks and web traffic), only with the tools Linux already ships with, so the two approaches can be compared.
+It answers the first questions you have about a server (who is hammering SSH, what is hitting the web server) with the tools Linux already ships with.
 
 ## Commands
 
@@ -17,17 +17,17 @@ Everything goes through one entry point, `./logtool <command>`.
 | `web-suspicious FILE` | SQL injection, path traversal, XSS, scanners and probing for sensitive files |
 | `journal [-s TIME]` | Error summary from `journalctl`, failed services, SSH attempts |
 
-`FILE` can be a plain log, a `.gz` archive (for example `auth.log.2.gz`) or `-` for stdin.
+`FILE` can be a plain log, a `.gz`, `.xz` or `.bz2` archive (for example `auth.log.2.gz`) or `-` for stdin. A damaged archive is an error, not an empty report.
 
 ## Install
 
 ```bash
-git clone https://github.com/<your-username>/bash-log-toolkit.git
+git clone https://github.com/faridtagizada/bash-log-toolkit.git
 cd bash-log-toolkit
 chmod +x logtool scripts/*.sh
 ```
 
-You need Bash 4+, `grep`, `awk`, `sed` and `gzip`. The `journal` command also needs systemd.
+You need Bash 4+, `grep`, `awk`, `sed` and `gzip` (`xz` and `bzip2` only for those archives). The `journal` command also needs systemd.
 
 ## Usage
 
@@ -69,6 +69,7 @@ Suspicious activity report: samples/access.log
 
 == SQL injection (requests: 4) ==
       4  203.0.113.5
+         1 of them got a 2xx answer - look at those first
 
 == Path traversal (requests: 3) ==
       3  198.51.100.7
@@ -76,9 +77,21 @@ Suspicious activity report: samples/access.log
 Total matches: 20 (one request can fall into several categories)
 ```
 
+On a server where password login is switched off, sshd never logs `Failed password`. `ssh-ips` then shows the connections that were turned away earlier:
+
+```
+Top 10 IPs by failed SSH attempts
+ATTEMPTS  IP
+  (no failed password attempts found)
+
+Rejected before a password was tried (invalid user, or closed while authenticating)
+ATTEMPTS  IP
+       2  192.0.2.77
+```
+
 ## How it works
 
-`ssh-ips` is really just this pipeline:
+The idea behind `ssh-ips` is this pipeline:
 
 ```bash
 grep 'Failed password' auth.log \
@@ -88,11 +101,18 @@ grep 'Failed password' auth.log \
 
 `grep` keeps only the failed password lines, `grep -o` pulls out the `from <IP>` part, `awk` strips the word `from`, and `sort | uniq -c` counts identical IPs and `sort -rn` puts the biggest first.
 
-One detail worth knowing: for a single attempt on an invalid user, sshd writes both an `Invalid user ...` line and a `Failed password for invalid user ...` line. Only the second one is counted, otherwise every attempt would show up twice (there is a test for this).
+Real logs need more care than that, so the three SSH commands share one `awk` parser (`ssh_failed_events` in `lib/common.sh`):
+
+- The address is read from the end of the line. The user name is chosen by the attacker and logged as is, so a name such as `x from 10.0.0.1` would otherwise put a made-up address into the report.
+- rsyslog's `message repeated 5 times: [ ... ]` counts as five more attempts.
+- For a single attempt on an invalid user, sshd writes both an `Invalid user ...` line and a `Failed password for invalid user ...` line. The attempt is counted once (there is a test for this).
+- IPv6 addresses are counted like IPv4 ones.
 
 `ssh-hourly` understands both the classic syslog timestamp (`Oct  8 03:10:01`) and the ISO 8601 one that Ubuntu 24.04 uses by default (`2026-10-08T03:10:01+04:00`).
 
-## Bash vs the Python version
+The web commands split each line by its quotes, not by blanks, so a request line of `"-"` (a timeout) or a URL with a blank in it does not shift the status code. `web-suspicious` matches the URL patterns against the request and the scanner names against the User-Agent, so `/api/unmapped` is not an `nmap` scan and a Referer with `/admin` in it is not admin probing.
+
+## Bash or Python?
 
 Bash needs nothing installed and is very quick for a "what's going on right now" look at a server. Python is nicer once the logic gets harder (sliding windows, correlating events), and it is easier to test and extend. So: Bash for quick diagnostics, Python for real detection and reporting.
 
@@ -102,7 +122,7 @@ Bash needs nothing installed and is very quick for a "what's going on right now"
 bash tests/run_tests.sh
 ```
 
-32 tests. They check the counts, that clean traffic produces no false alarms, stdin and gzip input, both timestamp formats, the `journal` command (against a fake `journalctl`) and the error cases. The scripts were also run through `shellcheck` (`shellcheck logtool lib/*.sh scripts/*.sh`).
+55 tests. They check the counts, that clean traffic produces no false alarms, stdin and compressed input, both timestamp formats, forged user names, repeated messages, a key-only server, the `journal` command (against a fake `journalctl`) and the error cases. GitHub Actions runs them on every push together with `shellcheck`.
 
 ## Layout
 
@@ -117,7 +137,7 @@ bash-log-toolkit/
 
 ## Limitations
 
-- `ssh-ips` only recognizes IPv4.
+- The SSH commands read OpenSSH's own messages (`Failed password`, `Invalid user`, `... authenticating user ... [preauth]`). PAM lines and `Failed publickey` are not counted.
 - `web-suspicious` is regex matching. It doesn't URL-decode, so it can give false positives and false negatives, and it is no substitute for a real WAF or IDS.
 - Only the Apache/Nginx "combined" format is supported.
 - `journal` may need `sudo` or membership of the `systemd-journal` group to see everything.
@@ -125,7 +145,6 @@ bash-log-toolkit/
 
 ## TODO
 
-- IPv6 support
 - a time range filter (`--since` / `--until`)
 - CSV and JSON output (`--format`)
 - analysis of `fail2ban` and `ufw` logs

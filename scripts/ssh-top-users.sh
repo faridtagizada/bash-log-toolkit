@@ -8,7 +8,8 @@ TOP=10
 usage() {
     cat <<USAGE
 Usage: $(basename "$0") [-n COUNT] LOG_FILE
-  Shows the usernames tried most often in failed SSH attempts.
+  Shows the usernames tried most often in failed SSH attempts
+  (failed passwords, plus connections rejected before a password was tried).
 USAGE
 }
 
@@ -22,12 +23,12 @@ done
 shift $((OPTIND - 1))
 prepare_input "${1:-}"
 
-# Catches both "Failed password for invalid user admin from ..." and
-# "Failed password for root from ..."
-result=$(grep -E 'Failed password for' -- "$INPUT" \
-    | sed -nE 's/.*Failed password for (invalid user )?([^ ]+) from .*/\2/p' \
-    | sort | uniq -c | sort -rn | head -n "$TOP" \
-    | awk '{printf "%8d  %s\n", $1, $2}')
+# The name is everything between "for [invalid user]" and the final "from IP port N":
+# sshd logs it as it was sent, so it may contain spaces or look like another log line.
+result=$(ssh_failed_events "$INPUT" \
+    | awk -F'\t' '{ c[$5] += $1 } END { for (u in c) printf "%d\t%s\n", c[u], u }' \
+    | sort -t $'\t' -k1,1nr -k2,2 | head -n "$TOP" \
+    | awk -F'\t' '{ printf "%8d  %s\n", $1, $2 }')
 
 echo "Most frequently tried usernames (top $TOP)"
 printf '%8s  %s\n' "ATTEMPTS" "USERNAME"

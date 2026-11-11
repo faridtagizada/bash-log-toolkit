@@ -8,6 +8,8 @@ usage() {
     cat <<USAGE
 Usage: $(basename "$0") ACCESS_LOG
   Counts suspicious requests per category and shows the most active IPs in each.
+  The URL patterns are matched against the request, the scanner names against
+  the User-Agent. Requests that were answered with a 2xx status are pointed out.
   Note: this is plain regex matching and does not URL-decode. False positives
   and false negatives are possible.
 USAGE
@@ -24,26 +26,45 @@ LABEL="${1:-}"
 prepare_input "$LABEL"
 
 SP='(\+|%20| )'
-# "category|regex" pairs (used with grep -iE)
+# "category|field|regex". The regex is matched, ignoring case, against ONE field of the
+# request and not against the whole line: "url" is the request target, "ua" the User-Agent.
+# Matching the whole line reported a CSS file with "/admin" in its Referer as admin probing
+# and "/api/unmapped" as a scanner, because it contains "nmap".
 CATEGORIES=(
-    "SQL injection|union${SP}+(all${SP}+)?select|(%27|')${SP}*(or|and)${SP}|information_schema|sleep\(|benchmark\("
-    "Path traversal|\.\./|%2e%2e(/|%2f|%5c)|/etc/passwd|/etc/shadow|boot\.ini|win\.ini"
-    "XSS|<script|%3cscript|javascript:|onerror=|onload="
-    "Sensitive file/admin probing|/\.env|/\.git/|wp-login\.php|wp-admin|xmlrpc\.php|phpmyadmin|/admin|\.bak( |\?|\")|\.sql( |\?|\")|/server-status|/cgi-bin/"
-    "Scanner User-Agent|sqlmap|nikto|nmap|masscan|dirbuster|gobuster|wpscan|acunetix|nessus|zgrab"
+    "SQL injection|url|union${SP}+(all${SP}+)?select|(%27|')${SP}*(or|and)${SP}|information_schema|sleep\(|benchmark\("
+    "Path traversal|url|\.\./|%2e%2e(/|%2f|%5c)|/etc/passwd|/etc/shadow|boot\.ini|win\.ini"
+    "XSS|url|<script|%3cscript|javascript:|onerror=|onload="
+    "Sensitive file/admin probing|url|/\.env|/\.git/|wp-login\.php|/wp-admin|xmlrpc\.php|phpmyadmin|/admin|\.bak(\?|$)|\.sql(\?|$)|/server-status|/cgi-bin/"
+    "Scanner User-Agent|ua|sqlmap|nikto|nmap|masscan|dirbuster|gobuster|wpscan|acunetix|nessus|zgrab"
 )
 
 echo "Suspicious activity report: $LABEL"
 suspicious_total=0
 for entry in "${CATEGORIES[@]}"; do
     name="${entry%%|*}"
-    regex="${entry#*|}"
-    count=$(grep -ciE -- "$regex" "$INPUT")
+    rest="${entry#*|}"
+    field="${rest%%|*}"
+    regex="${rest#*|}"
+    # One line per matching request: "IP<TAB>STATUS". The regex travels in the environment
+    # because "awk -v" would eat its backslashes.
+    matches=$(RE="$regex" FIELD="$field" awk "$ACCESS_LOG_AWK"'
+        BEGIN { re = ENVIRON["RE"]; field = ENVIRON["FIELD"] }
+        NF && parse_access($0) {
+            text = tolower(field == "ua" ? UA : TARGET)
+            # admin-ajax.php is called by the browser of every WordPress visitor
+            if (field == "url") sub(/^\/wp-admin\/admin-ajax\.php/, "/", text)
+            if (text != "" && text ~ re) print $1 "\t" STATUS
+        }' "$INPUT")
+    count=$(grep -c . <<<"$matches")
     section "$name (requests: $count)"
     if [[ "$count" -gt 0 ]]; then
         suspicious_total=$((suspicious_total + count))
-        grep -iE -- "$regex" "$INPUT" | awk '{ print $1 }' | sort | uniq -c | sort -rn | head -n 3 \
+        awk -F'\t' '{ print $1 }' <<<"$matches" | sort | uniq -c | sort -rn | head -n 3 \
             | awk '{printf "  %5d  %s\n", $1, $2}'
+        answered=$(awk -F'\t' '$2 ~ /^2/ { n++ } END { print n + 0 }' <<<"$matches")
+        if [[ "$answered" -gt 0 ]]; then
+            echo "         $answered of them got a 2xx answer - look at those first"
+        fi
     fi
 done
 

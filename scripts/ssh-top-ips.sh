@@ -8,9 +8,11 @@ TOP=10
 usage() {
     cat <<USAGE
 Usage: $(basename "$0") [-n COUNT] LOG_FILE
-  Counts failed SSH password attempts per IP.
+  Counts failed SSH password attempts per IP (IPv4 and IPv6).
+  Connections that were rejected before a password was tried (invalid user, or
+  closed while authenticating - all a key-only server logs) get a second table.
   -n COUNT   How many IPs to show (default: 10)
-  LOG_FILE   /var/log/auth.log, *.gz, or '-' (stdin)
+  LOG_FILE   /var/log/auth.log, *.gz, *.xz, *.bz2, or '-' (stdin)
 Example: sudo $(basename "$0") -n 5 /var/log/auth.log
 USAGE
 }
@@ -25,19 +27,31 @@ done
 shift $((OPTIND - 1))
 prepare_input "${1:-}"
 
-# Only "Failed password" lines are counted. For the same attempt sshd also logs a
-# separate "Invalid user ..." line; counting that one too would double every attempt.
-result=$(grep -E 'Failed password' -- "$INPUT" \
-    | grep -oE "from $IP_RE" \
-    | awk '{print $2}' \
-    | sort | uniq -c | sort -rn | head -n "$TOP" \
-    | awk '{printf "%8d  %s\n", $1, $2}')
+# One line per kind and IP, e.g. "password<TAB>203.0.113.5<TAB>12".
+# ssh_failed_events (lib/common.sh) explains what is counted and why.
+counts=$(ssh_failed_events "$INPUT" \
+    | awk -F'\t' '{ c[$4 "\t" $3] += $1 } END { for (k in c) printf "%s\t%d\n", k, c[k] }')
+
+top_ips() {   # top_ips KIND
+    awk -F'\t' -v kind="$1" '$1 == kind { printf "%d\t%s\n", $3, $2 }' <<<"$counts" \
+        | sort -t $'\t' -k1,1nr -k2,2 | head -n "$TOP" \
+        | awk -F'\t' '{ printf "%8d  %s\n", $1, $2 }'
+}
+
+result=$(top_ips password)
+probes=$(top_ips probe)
 
 echo "Top $TOP IPs by failed SSH attempts"
 printf '%8s  %s\n' "ATTEMPTS" "IP"
 if [[ -z "$result" ]]; then
-    echo "  (no failed attempts found)"
+    echo "  (no failed password attempts found)"
 else
     echo "$result"
+fi
+if [[ -n "$probes" ]]; then
+    echo
+    echo "Rejected before a password was tried (invalid user, or closed while authenticating)"
+    printf '%8s  %s\n' "ATTEMPTS" "IP"
+    echo "$probes"
 fi
 exit 0
