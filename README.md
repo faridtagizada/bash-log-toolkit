@@ -2,7 +2,7 @@
 
 A set of Bash scripts for analyzing Linux logs with nothing but the standard Unix tools (`grep`, `awk`, `sed`, `sort`, `uniq`, `journalctl`). There are no extra dependencies, so it works as soon as you copy it onto an Ubuntu or Debian server.
 
-It does the same job as the Python Log Analyzer (looking at SSH attacks and web traffic), only with the tools Linux already ships with, so the two approaches can be compared.
+It looks at SSH attacks and web traffic using only the tools Linux already ships with.
 
 ## Commands
 
@@ -22,7 +22,7 @@ Everything goes through one entry point, `./logtool <command>`.
 ## Install
 
 ```bash
-git clone https://github.com/<your-username>/bash-log-toolkit.git
+git clone https://github.com/faridtagizada/bash-log-toolkit.git
 cd bash-log-toolkit
 chmod +x logtool scripts/*.sh
 ```
@@ -82,17 +82,19 @@ Total matches: 20 (one request can fall into several categories)
 
 ```bash
 grep 'Failed password' auth.log \
-  | grep -oE 'from ([0-9]{1,3}\.){3}[0-9]{1,3}' \
-  | awk '{print $2}' | sort | uniq -c | sort -rn | head -n 10
+  | sed -nE 's/.* from ([^ ]+) port [0-9]+.*/\1/p' \
+  | sort | uniq -c | sort -rn | head -n 10
 ```
 
-`grep` keeps only the failed password lines, `grep -o` pulls out the `from <IP>` part, `awk` strips the word `from`, and `sort | uniq -c` counts identical IPs and `sort -rn` puts the biggest first.
+`grep` keeps only the failed password lines, `sed` pulls out the address after the last `from` (IPv4 or IPv6), `sort | uniq -c` counts identical IPs and `sort -rn` puts the biggest first. The address is taken after the *last* `from` because sshd writes the username first, and an attacker can try a username like `x from 8.8.8.8 port 1`.
 
 One detail worth knowing: for a single attempt on an invalid user, sshd writes both an `Invalid user ...` line and a `Failed password for invalid user ...` line. Only the second one is counted, otherwise every attempt would show up twice (there is a test for this).
 
+Another one: when the same line repeats, rsyslog (on by default in Ubuntu) writes `message repeated 2 times: [ Failed password ...]` instead. That line stands for two more attempts, so the SSH commands expand it before counting.
+
 `ssh-hourly` understands both the classic syslog timestamp (`Oct  8 03:10:01`) and the ISO 8601 one that Ubuntu 24.04 uses by default (`2026-10-08T03:10:01+04:00`).
 
-## Bash vs the Python version
+## Bash or Python?
 
 Bash needs nothing installed and is very quick for a "what's going on right now" look at a server. Python is nicer once the logic gets harder (sliding windows, correlating events), and it is easier to test and extend. So: Bash for quick diagnostics, Python for real detection and reporting.
 
@@ -102,7 +104,7 @@ Bash needs nothing installed and is very quick for a "what's going on right now"
 bash tests/run_tests.sh
 ```
 
-32 tests. They check the counts, that clean traffic produces no false alarms, stdin and gzip input, both timestamp formats, the `journal` command (against a fake `journalctl`) and the error cases. The scripts were also run through `shellcheck` (`shellcheck logtool lib/*.sh scripts/*.sh`).
+39 tests. They check the counts, that clean traffic produces no false alarms (also with a Referer like `/admin/` or a Google search for `union select`), stdin and gzip input, both timestamp formats, rsyslog's `message repeated` lines, IPv6 addresses, the `journal` command (against a fake `journalctl`) and the error cases. The scripts were also run through `shellcheck` (`shellcheck logtool lib/*.sh scripts/*.sh`).
 
 ## Layout
 
@@ -117,15 +119,13 @@ bash-log-toolkit/
 
 ## Limitations
 
-- `ssh-ips` only recognizes IPv4.
-- `web-suspicious` is regex matching. It doesn't URL-decode, so it can give false positives and false negatives, and it is no substitute for a real WAF or IDS.
+- `web-suspicious` is regex matching on the request line (and the User-Agent for scanners). It doesn't URL-decode and doesn't look at the Referer, so it can give false positives and false negatives, and it is no substitute for a real WAF or IDS.
 - Only the Apache/Nginx "combined" format is supported.
 - `journal` may need `sudo` or membership of the `systemd-journal` group to see everything.
 - On Ubuntu 24.04, `/var/log/auth.log` only exists if `rsyslog` is installed (`sudo apt install rsyslog`). Without it, use `journalctl -u ssh`.
 
 ## TODO
 
-- IPv6 support
 - a time range filter (`--since` / `--until`)
 - CSV and JSON output (`--format`)
 - analysis of `fail2ban` and `ufw` logs

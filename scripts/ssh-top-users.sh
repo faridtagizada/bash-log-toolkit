@@ -24,7 +24,8 @@ prepare_input "${1:-}"
 
 # Catches both "Failed password for invalid user admin from ..." and
 # "Failed password for root from ..."
-result=$(grep -E 'Failed password for' -- "$INPUT" \
+result=$(expand_repeats "$INPUT" \
+    | grep -E 'Failed password for' \
     | sed -nE 's/.*Failed password for (invalid user )?([^ ]+) from .*/\2/p' \
     | sort | uniq -c | sort -rn | head -n "$TOP" \
     | awk '{printf "%8d  %s\n", $1, $2}')

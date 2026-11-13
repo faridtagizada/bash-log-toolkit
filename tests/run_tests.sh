@@ -72,6 +72,36 @@ out=$(./logtool web-suspicious /tmp/logtool_clean.log)
 check_re "web-suspicious: clean traffic -> 0 matches" 'Total matches: 0' "$out"
 rm -f /tmp/logtool_clean.log
 
+# --- rsyslog "message repeated", IPv6 and a fake address in the username ---
+tmp_auth=$(mktemp)
+cat > "$tmp_auth" <<'LOG'
+Oct  8 03:10:01 srv sshd[2001]: Failed password for root from 203.0.113.9 port 50000 ssh2
+Oct  8 03:10:05 srv sshd[2001]: message repeated 2 times: [ Failed password for root from 203.0.113.9 port 50000 ssh2]
+Oct  8 03:11:01 srv sshd[2002]: Failed password for root from 2001:db8::66 port 40000 ssh2
+Oct  8 04:00:01 srv sshd[3001]: Failed password for invalid user x from 8.8.8.8 port 1 from 203.0.113.77 port 40022 ssh2
+LOG
+out=$(./logtool ssh-ips "$tmp_auth")
+check_re "repeated: 'message repeated 2 times' counts as 2 more" '^ +3  203\.0\.113\.9$' "$out"
+check_re "IPv6 source addresses are counted" '^ +1  2001:db8::66$' "$out"
+check_re "a fake 'from' in the username doesn't hide the real IP" '^ +1  203\.0\.113\.77$' "$out"
+check_eq "the fake address in the username is not counted" "0" "$(grep -c '8\.8\.8\.8' <<<"$out")"
+out=$(./logtool ssh-hourly "$tmp_auth")
+check_re "repeated: ssh-hourly counts them too (03:00 -> 4)" '^03:00 +4 +#+$' "$out"
+out=$(./logtool ssh-users "$tmp_auth")
+check_re "repeated: ssh-users counts them too (root -> 4)" '^ +4  root$' "$out"
+rm -f "$tmp_auth"
+
+# --- web-suspicious only looks at the request line and the User-Agent ---
+tmp_web=$(mktemp)
+cat > "$tmp_web" <<'LOG'
+192.168.1.20 - - [08/Oct/2026:10:00:01 +0400] "GET /static/app.css HTTP/1.1" 200 512 "https://shop.example/admin/orders" "Mozilla/5.0 (Windows NT 10.0)"
+192.168.1.20 - - [08/Oct/2026:10:00:02 +0400] "GET /blog/how-to-use-nmap-safely HTTP/1.1" 200 4096 "-" "Mozilla/5.0 (Windows NT 10.0)"
+192.168.1.21 - - [08/Oct/2026:10:00:03 +0400] "GET /index.html HTTP/1.1" 200 100 "https://www.google.com/search?q=union+select+tutorial" "Mozilla/5.0"
+LOG
+out=$(./logtool web-suspicious "$tmp_web")
+check_re "web-suspicious: Referer and page names don't count -> 0 matches" 'Total matches: 0' "$out"
+rm -f "$tmp_web"
+
 # --- Journal (with fake journalctl/systemctl) ---
 out=$(PATH="$PWD/tests/fakebin:$PATH" ./logtool journal)
 check_re "journal: nginx errors (2)" '^ +2  nginx$' "$out"

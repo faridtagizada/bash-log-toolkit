@@ -27,9 +27,11 @@ prepare_input "${1:-}"
 
 # Only "Failed password" lines are counted. For the same attempt sshd also logs a
 # separate "Invalid user ..." line; counting that one too would double every attempt.
-result=$(grep -E 'Failed password' -- "$INPUT" \
-    | grep -oE "from $IP_RE" \
-    | awk '{print $2}' \
+# The address is the word after the LAST " from " (IPv4 or IPv6): sshd writes the
+# username first, so a username like "x from 8.8.8.8 port 1" can't fake the source.
+result=$(expand_repeats "$INPUT" \
+    | grep -E 'Failed password' \
+    | sed -nE 's/.* from ([^ ]+) port [0-9]+.*/\1/p' \
     | sort | uniq -c | sort -rn | head -n "$TOP" \
     | awk '{printf "%8d  %s\n", $1, $2}')
 
