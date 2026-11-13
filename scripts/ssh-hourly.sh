@@ -23,7 +23,7 @@ shift $((OPTIND - 1))
 prepare_input "${1:-}"
 
 echo "Failed SSH attempts by hour"
-grep -E 'Failed password' -- "$INPUT" | awk '
+expand_repeats "$INPUT" | grep -E 'Failed password' | awk '
 {
     # ISO 8601: field 1 is "2026-10-08T03:10:01..." ; syslog: field 3 is "03:10:01"
     if ($1 ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T/) {

@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
 # Shared helper functions (sourced by the other scripts)
 
-# Simple IPv4 regex (used with grep -E)
-# shellcheck disable=SC2034  # used by the other scripts
-IP_RE='([0-9]{1,3}\.){3}[0-9]{1,3}'
-
 _TMP=""
 # shellcheck disable=SC2034  # used by the other scripts
 INPUT=""
@@ -51,6 +47,24 @@ prepare_input() {
             ;;
     esac
     trap cleanup_tmp EXIT
+}
+
+# expand_repeats FILE
+#   rsyslog writes "message repeated 3 times: [ Failed password ...]" instead of
+#   repeating an identical line ($RepeatedMsgReduction is on by default in Ubuntu).
+#   That line stands for 3 more attempts, so the inner message is printed 3 times,
+#   with the original timestamp and host in front. Other lines are printed as is.
+expand_repeats() {
+    awk '{
+        if (match($0, /message repeated [0-9]+ times: \[ ?/)) {
+            prefix = substr($0, 1, RSTART - 1)
+            n = substr($0, RSTART, RLENGTH); gsub(/[^0-9]/, "", n)
+            msg = substr($0, RSTART + RLENGTH); sub(/ ?\]$/, "", msg)
+            for (i = 0; i < n + 0; i++) print prefix msg
+            next
+        }
+        print
+    }' "$1"
 }
 
 # check_top: makes sure the -n value is a positive integer
