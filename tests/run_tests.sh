@@ -147,6 +147,12 @@ out=$(PATH="$PWD/tests/fakebin:$PATH" ./logtool journal)
 check_re "journal: nginx errors (2)" '^ +2  nginx$' "$out"
 check_re "journal: failed service" 'nginx\.service' "$out"
 check_re "journal: failed SSH attempts (3)" 'attempts: 3' "$out"
+mkdir -p "$WORK/nosystemd"
+printf '#!/bin/sh\necho "System has not been booted with systemd as init system (PID 1)." >&2\nexit 1\n' \
+    > "$WORK/nosystemd/systemctl"
+chmod +x "$WORK/nosystemd/systemctl"
+out=$(PATH="$WORK/nosystemd:$PWD/tests/fakebin:$PATH" ./logtool journal)
+check_re "journal: a failing systemctl is not shown as \"(none)\"" 'systemctl failed: System has not been booted' "$out"
 out=$(PATH="$PWD/tests/fakebin:$PATH" ./logtool journal -s not-a-time 2>&1); rc=$?
 check_eq "journal: a journalctl error -> exit code 1" "1" "$rc"
 check_re "journal: a journalctl error is shown" 'journalctl failed: Failed to parse timestamp' "$out"
@@ -158,6 +164,23 @@ check_re "journal: a journalctl error is shown" 'journalctl failed: Failed to pa
 ./logtool ssh-ips -n abc samples/auth.log >/dev/null 2>&1; check_eq "bad -n -> exit code 1" "1" "$?"
 ./logtool no-such-command >/dev/null 2>&1;          check_eq "unknown command -> exit code 1" "1" "$?"
 ./logtool ssh-ips -h >/dev/null 2>&1;               check_eq "-h -> exit code 0" "0" "$?"
+
+# A step that fails in the middle of a pipeline is an error, not "nothing found"
+mkdir -p "$WORK/brokenbin"
+printf '#!/bin/sh\necho "sort: write failed" >&2\nexit 2\n' > "$WORK/brokenbin/sort"
+chmod +x "$WORK/brokenbin/sort"
+for cmd in ssh-ips ssh-users web web-suspicious; do
+    sample=samples/auth.log; [[ "$cmd" == web* ]] && sample=samples/access.log
+    out=$(PATH="$WORK/brokenbin:$PATH" ./logtool "$cmd" "$sample" 2>&1); rc=$?
+    check_eq "$cmd: a failing step -> exit code 1" "1" "$rc"
+    check_re "$cmd: a failing step is reported" 'could not process samples/' "$out"
+done
+# ... while a big result cut down with -n is not one (head would kill sort with SIGPIPE)
+awk 'BEGIN { for (i = 0; i < 40000; i++)
+    printf "Oct  8 03:10:01 web sshd[1]: Failed password for root from 10.%d.%d.%d port 22 ssh2\n",
+        int(i / 65536) % 256, int(i / 256) % 256, i % 256 }' > "$WORK/big.log"
+out=$(./logtool ssh-ips -n 1 "$WORK/big.log" 2>&1); rc=$?
+check_eq "ssh-ips -n 1 on 40000 IPs -> exit code 0" "0" "$rc"
 
 echo
 echo "Result: $PASS passed, $FAIL failed"

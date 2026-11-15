@@ -25,13 +25,13 @@ prepare_input "${1:-}"
 
 # count_and_rank: "sort | uniq -c" output -> the usual two columns (the value may contain blanks)
 count_and_rank() {
-    sort | uniq -c | sort -rn | head -n "$TOP" \
+    sort | uniq -c | sort -rn | top_lines "$TOP" \
         | awk '{ n = $1; sub(/^ *[0-9]+ /, ""); printf "%8d  %s\n", n, $0 }'
 }
 
 # Lines are counted with awk, not "wc -l": a last line without a newline still is a request,
 # and an empty line is not one.
-total=$(awk 'NF { n++ } END { print n + 0 }' "$INPUT")
+total=$(awk 'NF { n++ } END { print n + 0 }' "$INPUT") || failed
 echo "Total requests: $total"
 
 # The fields come from parse_access (lib/common.sh), which splits by the quotes. Taking the
@@ -39,18 +39,18 @@ echo "Total requests: $total"
 section "Status code groups"
 awk "$ACCESS_LOG_AWK"'
     NF && parse_access($0) && STATUS != "" { g[substr(STATUS, 1, 1) "xx"]++ }
-    END { for (k in g) printf "%8d  %s\n", g[k], k }' "$INPUT" | sort -k2
+    END { for (k in g) printf "%8d  %s\n", g[k], k }' "$INPUT" | sort -k2 || failed
 
 section "Status codes"
-awk "$ACCESS_LOG_AWK"'NF && parse_access($0) && STATUS != "" { print STATUS }' "$INPUT" | count_and_rank
+awk "$ACCESS_LOG_AWK"'NF && parse_access($0) && STATUS != "" { print STATUS }' "$INPUT" | count_and_rank || failed
 
 section "Top IPs (top $TOP)"
-awk 'NF { print $1 }' "$INPUT" | count_and_rank
+awk 'NF { print $1 }' "$INPUT" | count_and_rank || failed
 
 section "Most requested URLs (without query strings)"
 awk "$ACCESS_LOG_AWK"'
-    NF && parse_access($0) && TARGET != "" { split(TARGET, p, "?"); print p[1] }' "$INPUT" | count_and_rank
+    NF && parse_access($0) && TARGET != "" { split(TARGET, p, "?"); print p[1] }' "$INPUT" | count_and_rank || failed
 
 section "Top User-Agents"
-awk "$ACCESS_LOG_AWK"'NF && parse_access($0) && UA != "" { print UA }' "$INPUT" | count_and_rank
+awk "$ACCESS_LOG_AWK"'NF && parse_access($0) && UA != "" { print UA }' "$INPUT" | count_and_rank || failed
 exit 0

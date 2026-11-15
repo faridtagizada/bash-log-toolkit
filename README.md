@@ -19,6 +19,8 @@ Everything goes through one entry point, `./logtool <command>`.
 
 `FILE` can be a plain log, a `.gz`, `.xz` or `.bz2` archive (for example `auth.log.2.gz`) or `-` for stdin. A damaged archive is an error, not an empty report.
 
+Exit codes, for cron and CI: `0` means the report was printed, also when it found nothing; `1` means an error (a bad option, an unreadable or damaged file, `journalctl` failing, or a step of the analysis failing). The scripts run with `set -o pipefail` and check their pipelines, so a failed step never looks like "nothing found".
+
 ## Install
 
 ```bash
@@ -122,7 +124,7 @@ Bash needs nothing installed and is very quick for a "what's going on right now"
 bash tests/run_tests.sh
 ```
 
-55 tests. They check the counts, that clean traffic produces no false alarms, stdin and compressed input, both timestamp formats, forged user names, repeated messages, a key-only server, the `journal` command (against a fake `journalctl`) and the error cases. GitHub Actions runs them on every push together with `shellcheck`.
+65 tests. They check the counts, that clean traffic produces no false alarms, stdin and compressed input, both timestamp formats, forged user names, repeated messages, a key-only server, the `journal` command (against a fake `journalctl` and `systemctl`) and the error cases, including a step that fails in the middle of a pipeline. GitHub Actions runs them on every push together with `shellcheck`.
 
 ## Layout
 

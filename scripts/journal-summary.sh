@@ -27,6 +27,7 @@ while getopts "s:n:h" opt; do
 done
 
 command -v journalctl >/dev/null 2>&1 || die "journalctl not found (systemd required)"
+INPUT_NAME="the journal"    # for the error message of a failed step
 
 new_tmp; JOURNAL_OUT="$REPLY"
 new_tmp; JOURNAL_ERR="$REPLY"
@@ -44,7 +45,7 @@ echo "Journal summary (since: $SINCE)"
 
 section "Error messages by service (priority: err and above)"
 errors=$(awk 'NF >= 5 { u = $5; sub(/\[[0-9]+\]:?$/, "", u); sub(/:$/, "", u); print u }' "$JOURNAL_OUT" \
-    | sort | uniq -c | sort -rn | head -n "$TOP" | awk '{printf "%8d  %s\n", $1, $2}')
+    | sort | uniq -c | sort -rn | top_lines "$TOP" | awk '{printf "%8d  %s\n", $1, $2}') || failed
 if [[ -z "$errors" ]]; then
     echo "  (no error messages found, or the journal is not readable)"
 else
@@ -52,22 +53,25 @@ else
 fi
 
 section "Failed systemd services"
-if command -v systemctl >/dev/null 2>&1; then
-    failed=$(systemctl --failed --no-legend --plain 2>/dev/null | awk '{print "  " $1}')
-    if [[ -z "$failed" ]]; then
+if ! command -v systemctl >/dev/null 2>&1; then
+    echo "  (systemctl not available)"
+elif units=$(systemctl --failed --no-legend --plain 2> "$JOURNAL_ERR"); then
+    failed_units=$(awk 'NF { print "  " $1 }' <<<"$units")
+    if [[ -z "$failed_units" ]]; then
         echo "  (none)"
     else
-        echo "$failed"
+        echo "$failed_units"
     fi
 else
-    echo "  (systemctl not available)"
+    # e.g. in a container without systemd: that is not the same as "no failed services"
+    echo "  (systemctl failed: $(head -n 1 "$JOURNAL_ERR"))"
 fi
 
 section "SSH: failed password attempts"
 count=0
 for unit in ssh sshd; do
     journal -u "$unit" -o short
-    c=$(ssh_failed_events "$JOURNAL_OUT" | awk -F'\t' '$4 == "password" { n += $1 } END { print n + 0 }')
+    c=$(ssh_failed_events "$JOURNAL_OUT" | awk -F'\t' '$4 == "password" { n += $1 } END { print n + 0 }') || failed
     count=$((count + c))
 done
 echo "  attempts: $count"

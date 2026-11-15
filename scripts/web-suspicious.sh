@@ -54,13 +54,13 @@ for entry in "${CATEGORIES[@]}"; do
             # admin-ajax.php is called by the browser of every WordPress visitor
             if (field == "url") sub(/^\/wp-admin\/admin-ajax\.php/, "/", text)
             if (text != "" && text ~ re) print $1 "\t" STATUS
-        }' "$INPUT")
+        }' "$INPUT") || failed
     count=$(grep -c . <<<"$matches")
     section "$name (requests: $count)"
     if [[ "$count" -gt 0 ]]; then
         suspicious_total=$((suspicious_total + count))
-        awk -F'\t' '{ print $1 }' <<<"$matches" | sort | uniq -c | sort -rn | head -n 3 \
-            | awk '{printf "  %5d  %s\n", $1, $2}'
+        awk -F'\t' '{ print $1 }' <<<"$matches" | sort | uniq -c | sort -rn | top_lines 3 \
+            | awk '{printf "  %5d  %s\n", $1, $2}' || failed
         answered=$(awk -F'\t' '$2 ~ /^2/ { n++ } END { print n + 0 }' <<<"$matches")
         if [[ "$answered" -gt 0 ]]; then
             echo "         $answered of them got a 2xx answer - look at those first"

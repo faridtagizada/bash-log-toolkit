@@ -27,8 +27,8 @@ prepare_input "${1:-}"
 # sshd logs it as it was sent, so it may contain spaces or look like another log line.
 result=$(ssh_failed_events "$INPUT" \
     | awk -F'\t' '{ c[$5] += $1 } END { for (u in c) printf "%d\t%s\n", c[u], u }' \
-    | sort -t $'\t' -k1,1nr -k2,2 | head -n "$TOP" \
-    | awk -F'\t' '{ printf "%8d  %s\n", $1, $2 }')
+    | sort -t $'\t' -k1,1nr -k2,2 | top_lines "$TOP" \
+    | awk -F'\t' '{ printf "%8d  %s\n", $1, $2 }') || failed
 
 echo "Most frequently tried usernames (top $TOP)"
 printf '%8s  %s\n' "ATTEMPTS" "USERNAME"

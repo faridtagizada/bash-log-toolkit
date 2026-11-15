@@ -30,16 +30,16 @@ prepare_input "${1:-}"
 # One line per kind and IP, e.g. "password<TAB>203.0.113.5<TAB>12".
 # ssh_failed_events (lib/common.sh) explains what is counted and why.
 counts=$(ssh_failed_events "$INPUT" \
-    | awk -F'\t' '{ c[$4 "\t" $3] += $1 } END { for (k in c) printf "%s\t%d\n", k, c[k] }')
+    | awk -F'\t' '{ c[$4 "\t" $3] += $1 } END { for (k in c) printf "%s\t%d\n", k, c[k] }') || failed
 
 top_ips() {   # top_ips KIND
     awk -F'\t' -v kind="$1" '$1 == kind { printf "%d\t%s\n", $3, $2 }' <<<"$counts" \
-        | sort -t $'\t' -k1,1nr -k2,2 | head -n "$TOP" \
+        | sort -t $'\t' -k1,1nr -k2,2 | top_lines "$TOP" \
         | awk -F'\t' '{ printf "%8d  %s\n", $1, $2 }'
 }
 
-result=$(top_ips password)
-probes=$(top_ips probe)
+result=$(top_ips password) || failed
+probes=$(top_ips probe) || failed
 
 echo "Top $TOP IPs by failed SSH attempts"
 printf '%8s  %s\n' "ATTEMPTS" "IP"

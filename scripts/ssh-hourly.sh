@@ -35,5 +35,5 @@ END {
         for (j = 0; j < n; j++) bar = bar "#"
         printf "%02d:00  %6d  %s\n", i, c[i], bar
     }
-}'
+}' || failed
 exit 0

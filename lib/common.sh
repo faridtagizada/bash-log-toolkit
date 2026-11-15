@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # Shared helper functions (sourced by the other scripts)
 
+# A pipeline fails when any command in it fails, not only the last one. The scripts check
+# their pipelines with "|| die", so a failing step is an error (exit code 1) and not an empty
+# report that looks like "nothing found" to cron or CI.
+set -o pipefail
+
 # Simple IPv4 regex (used with grep -E)
 # shellcheck disable=SC2034  # kept for scripts that source this file
 IP_RE='([0-9]{1,3}\.){3}[0-9]{1,3}'
@@ -8,6 +13,7 @@ IP_RE='([0-9]{1,3}\.){3}[0-9]{1,3}'
 _TMP_FILES=()
 # shellcheck disable=SC2034  # used by the other scripts
 INPUT=""
+INPUT_NAME=""       # the name the user gave (INPUT can be a temporary file)
 
 die() {
     echo "Error: $*" >&2
@@ -33,6 +39,17 @@ new_tmp() {
     trap cleanup_tmp EXIT
 }
 
+# top_lines N: the first N lines. Unlike "head" it reads all of its input, so the command in
+# front of it is not killed by SIGPIPE, which pipefail would turn into a false error.
+top_lines() {
+    awk -v n="$1" 'NR <= n'
+}
+
+# failed: the message for a pipeline that did not finish
+failed() {
+    die "could not process ${INPUT_NAME:-the input} (a step of the analysis failed)"
+}
+
 # _decompress TOOL FILE: unpacks FILE into a temporary file and points INPUT at it
 _decompress() {
     local tool="$1" f="$2"
@@ -52,9 +69,11 @@ _decompress() {
 prepare_input() {
     local f="${1:-}"
     [[ -n "$f" ]] || die "no log file given (use -h for help)"
+    INPUT_NAME="$f"
+    [[ "$f" != "-" ]] || INPUT_NAME="stdin"
     if [[ "$f" == "-" ]]; then
         new_tmp
-        cat > "$REPLY"
+        cat > "$REPLY" || die "cannot read stdin"
         INPUT="$REPLY"
         return 0
     fi
