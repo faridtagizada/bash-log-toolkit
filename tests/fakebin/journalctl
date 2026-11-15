@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 # Fake journalctl for tests
-prio=""; unit=""
+prio=""; unit=""; since=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -p) prio="$2"; shift ;;
         -u) unit="$2"; shift ;;
+        --since) since="$2"; shift ;;
     esac
     shift
 done
+if [[ "$since" == "not-a-time" ]]; then
+    echo "Failed to parse timestamp: $since" >&2
+    exit 1
+fi
 if [[ -n "$prio" ]]; then
     echo "Oct 08 10:00:01 srv nginx[123]: connect() failed"
     echo "Oct 08 10:00:02 srv nginx[123]: upstream timed out"
