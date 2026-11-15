@@ -51,6 +51,7 @@ failed() {
 }
 
 # _decompress TOOL FILE: unpacks FILE into a temporary file and points INPUT at it
+# shellcheck disable=SC2034  # INPUT is read by the scripts that source this file
 _decompress() {
     local tool="$1" f="$2"
     command -v "$tool" >/dev/null 2>&1 || die "$tool not found (needed to read $f)"
@@ -66,6 +67,7 @@ _decompress() {
 #   FILE = *.gz, *.xz, *.bz2 -> decompress
 #   anything else            -> used as is
 # The result is left in INPUT (so the file can be read more than once).
+# shellcheck disable=SC2034  # INPUT and INPUT_NAME are read by the scripts that source this file
 prepare_input() {
     local f="${1:-}"
     [[ -n "$f" ]] || die "no log file given (use -h for help)"
